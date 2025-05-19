@@ -29,8 +29,8 @@ Make sure you have the following installed on your machine:
 Clone the repository and navigate into the project folder:
 
 ```bash
-git clone https://github.com/your-username/osint-app.git
-cd osint-app
+git clone https://github.com/YZohar8/OSINT.git
+cd OSINT
 ```
 
 > Or if you have this as a ZIP file, just extract it and `cd` into the directory.
@@ -70,7 +70,3 @@ This repository includes:
 - `README.md`: Project overview and instructions.
 
 ---
-
-## 👤 Author
-
-PTBOX Dev Challenge Participant
