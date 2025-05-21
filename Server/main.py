@@ -6,9 +6,12 @@ from fastapi.responses import JSONResponse
 import uuid
 import logging
 import json
-from utils import run_osint_scan
+from datetime import datetime
+from LocalDB import save_scan, update_scan, get_scan, get_all_scans
+import asyncio
+from utils import run_osint_scan, is_valid_domain
 
-# 👨‍🔧 Custom JSON logger that includes scan_id if provided
+# JSON logger
 class JSONFormatter(logging.Formatter):
     def format(self, record):
         log_record = {
@@ -19,7 +22,7 @@ class JSONFormatter(logging.Formatter):
             log_record["scan_id"] = record.scan_id
         return json.dumps(log_record)
 
-# ✅ Set up the logger only once
+# Logger setup
 logger = logging.getLogger("uvicorn")
 logger.handlers.clear()
 handler = logging.StreamHandler()
@@ -27,10 +30,8 @@ handler.setFormatter(JSONFormatter())
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-# 🌐 FastAPI app instance
 app = FastAPI()
 
-# 🔐 Enable CORS for the frontend
 origins = ["http://localhost:3000"]
 
 app.add_middleware(
@@ -41,51 +42,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 📦 Request model
 class ScanRequest(BaseModel):
     domain: str
 
-# 🚀 POST /scan endpoint
 @app.post("/scan")
 async def scan_domain(request: ScanRequest):
     scan_id = str(uuid.uuid4())
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.utcnow().isoformat() + 'Z'
+
     logger.info(f"Received scan request for domain: {request.domain}", extra={"scan_id": scan_id})
 
-    # Initialize scan data
-    scan_data = {
-        "domain": request.domain,
-        "created_at": created_at,
-        "status": "in_progress",
-        "result": None,
-        "completed_at": None,
-    }
-    scan_results[scan_id] = scan_data
+    if not is_valid_domain(request.domain):
+        logger.warning("Invalid domain format", extra={"scan_id": scan_id})
+        return JSONResponse(status_code=400, content={"error": "Invalid domain format"})
 
-    # Run the scan in background
-    asyncio.create_task(run_and_store_scan(request.domain, scan_id))
+    try:
+        scan_data = {
+            "scan_id": scan_id,
+            "domain": request.domain,
+            "created_at": created_at,
+            "status": "in_progress",
+            "result": None,
+            "completed_at": None,
+        }
 
-    logger.info("Scan task started in background", extra={"scan_id": scan_id})
-    return {"scan_id": scan_id, "created_at": created_at, "status": "in_progress"}
+        save_scan(scan_id, scan_data)
+
+        asyncio.create_task(run_and_store_scan(request.domain, scan_id))
+        return scan_data  # מחזיר את כל האובייקט
+
+    except Exception as e:
+        logger.error(f"Exception: {e}", extra={"scan_id": scan_id})
+        logger.error(traceback.format_exc(), extra={"scan_id": scan_id})
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+
+@app.get("/scan/{scan_id}")
+async def get_scan_status(scan_id: str):
+    scan = get_scan(scan_id)
+    if not scan:
+        return JSONResponse(status_code=404, content={"error": "Scan not found"})
+    return scan
+
+
+@app.get("/scan/all")
+async def get_all_scans_endpoint():
+    return get_all_scans()
 
 
 async def run_and_store_scan(domain: str, scan_id: str):
     try:
-        logger.info(f"Running tools for scan_id: {scan_id}", extra={"scan_id": scan_id})
         results = await run_osint_scan(domain, scan_id)
-        completed_at = datetime.utcnow().isoformat()
+        completed_at = datetime.utcnow().isoformat() + 'Z'
 
-        scan_results[scan_id].update({
+        update_scan(scan_id, {
             "result": results,
             "status": "completed",
             "completed_at": completed_at,
         })
 
-        logger.info(f"Scan completed successfully", extra={"scan_id": scan_id})
+        logger.info("Scan completed", extra={"scan_id": scan_id})
+
     except Exception as e:
         logger.error(f"Scan failed: {str(e)}", extra={"scan_id": scan_id})
-        scan_results[scan_id].update({
+        logger.error(traceback.format_exc(), extra={"scan_id": scan_id})
+        update_scan(scan_id, {
             "status": "error",
             "result": {"error": str(e)},
-            "completed_at": datetime.utcnow().isoformat(),
+            "completed_at": datetime.utcnow().isoformat() + 'Z',
         })

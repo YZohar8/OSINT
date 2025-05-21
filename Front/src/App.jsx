@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import ResponseCard from './components/ResponseCard';
+import ScanListModal from './components/ScanListModal';
+import * as XLSX from 'xlsx';
 
 function App() {
   const [domain, setDomain] = useState('');
   const [responses, setResponses] = useState([]);
   const [error, setError] = useState('');
+  const [showModal, setShowModal] = useState(false);
 
   const isValidDomain = (d) => {
     const domainRegex = /^(?!\-)([a-zA-Z0-9\-]{1,63}\.)+[a-zA-Z]{2,}$/;
@@ -30,19 +33,7 @@ function App() {
       });
 
       const data = await res.json();
-
-      setResponses(prev => [
-        {
-          scan_id: data.scan_id,
-          domain,
-          status: 'in_progress',
-          created_at: data.start_time,
-          result: null,
-          completed_at: null,
-        },
-        ...prev
-      ]);
-
+      setResponses(prev => [data, ...prev]);
       setDomain('');
     } catch (err) {
       console.error('Error:', err);
@@ -50,16 +41,45 @@ function App() {
     }
   };
 
+  const exportToExcel = () => {
+    const worksheet = XLSX.utils.json_to_sheet(responses.map(r => ({
+      Domain: r.domain,
+      Status: r.status,
+      CreatedAt: r.created_at,
+      CompletedAt: r.completed_at,
+      Result: JSON.stringify(r.result || {})
+    })));
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Scans');
+
+    XLSX.writeFile(workbook, 'osint_scans.xlsx');
+  };
+
+  useEffect(() => {
+    const fetchAllScans = async () => {
+      try {
+        const res = await fetch('http://localhost:8010/scan/all');
+        const data = await res.json();
+        setResponses(data.reverse());
+      } catch (err) {
+        console.error('Error fetching scans:', err);
+      }
+    };
+
+    fetchAllScans();
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(async () => {
-      const incomplete = responses.filter(r => r.status !== 'completed');
+      const incomplete = responses.filter(r => r.status !== 'completed' && r.status !== 'error');
 
       for (let item of incomplete) {
         try {
           const res = await fetch(`http://localhost:8010/scan/${item.scan_id}`);
           const data = await res.json();
 
-          if (data.status === 'completed') {
+          if (data.status === 'completed' || data.status === 'error') {
             setResponses(prev =>
               prev.map(r =>
                 r.scan_id === item.scan_id
@@ -88,6 +108,8 @@ function App() {
           placeholder="Enter domain name..."
         />
         <button onClick={handleSubmit}>Scan</button>
+        <button onClick={() => setShowModal(true)}>📂 Show All</button>
+        <button onClick={exportToExcel}>📥 Export to Excel</button>
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -104,6 +126,10 @@ function App() {
           />
         ))}
       </div>
+
+      {showModal && (
+        <ScanListModal responses={responses} onClose={() => setShowModal(false)} />
+      )}
     </div>
   );
 }

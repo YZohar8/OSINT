@@ -8,7 +8,7 @@ function ResponseCard({ domain, response, status, createdAt, completedAt }) {
       <p>Status: {status}</p>
       <p>Started: {new Date(createdAt).toLocaleString()}</p>
       {completedAt && <p>Completed: {new Date(completedAt).toLocaleString()}</p>}
-      {status === 'completed' && (
+      {(status === 'completed' || status === 'error') && (
         <pre>{JSON.stringify(response, null, 2)}</pre>
       )}
     </div>
