@@ -8,10 +8,12 @@ function App() {
   const [domain, setDomain] = useState('');
   const [responses, setResponses] = useState([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [allScans, setAllScans] = useState([]);
 
   const isValidDomain = (d) => {
-    const domainRegex = /^(?!\-)([a-zA-Z0-9\-]{1,63}\.)+[a-zA-Z]{2,}$/;
+    const domainRegex = /^(?!-)([a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,}$/;
     return domainRegex.test(d);
   };
 
@@ -25,6 +27,7 @@ function App() {
       return;
     }
 
+    setLoading(true);
     try {
       const res = await fetch('http://localhost:8010/scan', {
         method: 'POST',
@@ -32,17 +35,22 @@ function App() {
         body: JSON.stringify({ domain })
       });
 
+      if (!res.ok) throw new Error('Server error');
+
       const data = await res.json();
       setResponses(prev => [data, ...prev]);
       setDomain('');
     } catch (err) {
       console.error('Error:', err);
       setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const exportToExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(responses.map(r => ({
+  const exportToExcel = async () => {
+    await updateResponses();
+    const worksheet = XLSX.utils.json_to_sheet(allScans.map(r => ({
       Domain: r.domain,
       Status: r.status,
       CreatedAt: r.created_at,
@@ -56,12 +64,24 @@ function App() {
     XLSX.writeFile(workbook, 'osint_scans.xlsx');
   };
 
+  const updateResponses = async () => {
+    try {
+      const res = await fetch('http://localhost:8010/scan/all');
+      if (!res.ok) throw new Error('Failed to fetch scans');
+      const data = await res.json();
+      setAllScans(data.reverse());
+    } catch (err) {
+      console.error('Error fetching scans:', err);
+    }
+  };
+
   useEffect(() => {
     const fetchAllScans = async () => {
       try {
         const res = await fetch('http://localhost:8010/scan/all');
+        if (!res.ok) throw new Error('Failed to fetch scans');
         const data = await res.json();
-        setResponses(data.reverse());
+        setAllScans(data.reverse());
       } catch (err) {
         console.error('Error fetching scans:', err);
       }
@@ -71,30 +91,29 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const incomplete = responses.filter(r => r.status !== 'completed' && r.status !== 'error');
-
-      for (let item of incomplete) {
-        try {
-          const res = await fetch(`http://localhost:8010/scan/${item.scan_id}`);
-          const data = await res.json();
-
-          if (data.status === 'completed' || data.status === 'error') {
-            setResponses(prev =>
-              prev.map(r =>
-                r.scan_id === item.scan_id
-                  ? { ...r, ...data }
-                  : r
-              )
-            );
+    const pollIncompleteScans = async () => {
+      const interval = setInterval(async () => {
+        const incomplete = responses.filter(r => r.status !== 'completed' && r.status !== 'error');
+        for (let item of incomplete) {
+          try {
+            const res = await fetch(`http://localhost:8010/scan/${item.scan_id}`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data.status === 'completed' || data.status === 'error') {
+              setResponses(prev =>
+                prev.map(r => (r.scan_id === item.scan_id ? { ...r, ...data } : r))
+              );
+            }
+          } catch (err) {
+            console.error('Polling error:', err);
           }
-        } catch (err) {
-          console.error('Polling error:', err);
         }
-      }
-    }, 3000);
+      }, 15000);
 
-    return () => clearInterval(interval);
+      return () => clearInterval(interval);
+    };
+
+    pollIncompleteScans();
   }, [responses]);
 
   return (
@@ -107,7 +126,7 @@ function App() {
           onChange={(e) => setDomain(e.target.value)}
           placeholder="Enter domain name..."
         />
-        <button onClick={handleSubmit}>Scan</button>
+        <button onClick={handleSubmit} disabled={loading}>{loading ? 'Scanning...' : 'Scan'}</button>
         <button onClick={() => setShowModal(true)}>📂 Show All</button>
         <button onClick={exportToExcel}>📥 Export to Excel</button>
       </div>
@@ -115,20 +134,24 @@ function App() {
       {error && <p className="error">{error}</p>}
 
       <div className="results">
-        {responses.map((r, idx) => (
-          <ResponseCard
-            key={idx}
-            domain={r.domain}
-            response={r.result}
-            status={r.status}
-            createdAt={r.created_at}
-            completedAt={r.completed_at}
-          />
-        ))}
+        {Array.isArray(responses) && responses.map((r, idx) =>
+          r && typeof r === 'object' && r.domain ? (
+            <ResponseCard
+              key={idx}
+              domain={r.domain}
+              response={r.result}
+              status={r.status}
+              createdAt={r.created_at}
+              completedAt={r.completed_at}
+            />
+          ) : (
+            <div key={idx} className="response-error">Invalid response format</div>
+          )
+        )}
       </div>
 
       {showModal && (
-        <ScanListModal responses={responses} onClose={() => setShowModal(false)} />
+        <ScanListModal responses={responses} onClose={() => setShowModal(false)} show={showModal} />
       )}
     </div>
   );

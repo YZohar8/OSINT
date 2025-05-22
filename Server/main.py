@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,7 +8,7 @@ import uuid
 import logging
 import json
 from datetime import datetime
-from LocalDB import save_scan, update_scan, get_scan, get_all_scans
+from LocalDB import save_scan, update_scan, get_scan, get_all_scans, init_db
 import asyncio
 from utils import run_osint_scan, is_valid_domain
 
@@ -36,14 +37,19 @@ origins = ["http://localhost:3000"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["*"], 
     allow_headers=["*"],
 )
 
 class ScanRequest(BaseModel):
     domain: str
+
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
 
 @app.post("/scan")
 async def scan_domain(request: ScanRequest):
@@ -69,13 +75,17 @@ async def scan_domain(request: ScanRequest):
         save_scan(scan_id, scan_data)
 
         asyncio.create_task(run_and_store_scan(request.domain, scan_id))
-        return scan_data  # מחזיר את כל האובייקט
+        return scan_data
 
     except Exception as e:
         logger.error(f"Exception: {e}", extra={"scan_id": scan_id})
         logger.error(traceback.format_exc(), extra={"scan_id": scan_id})
         return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    
 
+@app.get("/scan/all")
+async def get_all_scans_endpoint():
+    return get_all_scans()
 
 @app.get("/scan/{scan_id}")
 async def get_scan_status(scan_id: str):
@@ -84,10 +94,6 @@ async def get_scan_status(scan_id: str):
         return JSONResponse(status_code=404, content={"error": "Scan not found"})
     return scan
 
-
-@app.get("/scan/all")
-async def get_all_scans_endpoint():
-    return get_all_scans()
 
 
 async def run_and_store_scan(domain: str, scan_id: str):
