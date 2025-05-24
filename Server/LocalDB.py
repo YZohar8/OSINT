@@ -30,7 +30,8 @@ def init_db():
         created_at TEXT NOT NULL,
         completed_at TEXT,
         status TEXT NOT NULL,
-        result TEXT
+        result TEXT,
+        summary TEXT
     )
     """)
 
@@ -48,8 +49,8 @@ def save_scan(scan_id, scan_data):
     cursor = conn.cursor()
 
     cursor.execute("""
-    INSERT INTO scans (scan_id, domain, created_at, completed_at, status, result)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO scans (scan_id, domain, created_at, completed_at, status, result, summary)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         scan_id,
         scan_data["domain"],
@@ -57,24 +58,21 @@ def save_scan(scan_id, scan_data):
         scan_data.get("completed_at"),
         scan_data["status"],
         json.dumps(scan_data.get("result")),
+        "",
     ))
 
     conn.commit()
     conn.close()
 
 def update_scan(scan_id, updates):
-
+    print("update: for scan")
+    print(updates)
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATA_DIR = os.path.join(BASE_DIR, "data")
     DB_FILE = os.path.join(DATA_DIR, "scans.db")
 
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM scans WHERE scan_id = ?", (scan_id,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
+    if not updates:
+        print(f"[update_scan] No updates provided for scan_id: {scan_id}")
         return
 
     update_fields = []
@@ -85,21 +83,46 @@ def update_scan(scan_id, updates):
         update_values.append(updates["status"])
 
     if "completed_at" in updates:
+        completed_at = updates["completed_at"]
+        if isinstance(completed_at, datetime):
+            completed_at = completed_at.isoformat()
         update_fields.append("completed_at = ?")
-        update_values.append(updates["completed_at"])
+        update_values.append(completed_at)
 
     if "result" in updates:
         update_fields.append("result = ?")
         update_values.append(json.dumps(updates["result"]))
 
+    if "result" in updates:
+        update_fields.append("summary = ?")
+        update_values.append(json.dumps(updates["summary"]))
+
+    if not update_fields:
+        print(f"[update_scan] No valid fields to update for scan_id: {scan_id}")
+        return
+
     update_values.append(scan_id)
 
-    cursor.execute(f"""
-    UPDATE scans SET {", ".join(update_fields)} WHERE scan_id = ?
-    """, update_values)
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
 
-    conn.commit()
-    conn.close()
+            cursor.execute("SELECT 1 FROM scans WHERE scan_id = ?", (scan_id,))
+            if not cursor.fetchone():
+                print(f"[update_scan] No scan found with ID: {scan_id}")
+                return
+
+            sql = f"""
+                UPDATE scans
+                SET {", ".join(update_fields)}
+                WHERE scan_id = ?
+            """
+            cursor.execute(sql, update_values)
+            conn.commit()
+            print(f"[update_scan] Updated scan {scan_id} with fields: {', '.join(updates.keys())}")
+
+    except sqlite3.Error as e:
+        print(f"[update_scan] SQLite error for scan_id {scan_id}: {e}")
 
 def get_scan(scan_id):
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -122,6 +145,7 @@ def get_scan(scan_id):
         "completed_at": row[3],
         "status": row[4],
         "result": json.loads(row[5]) if row[5] else None,
+        "summary": row[6],
     }
 
 def get_all_scans():
@@ -144,6 +168,7 @@ def get_all_scans():
             "completed_at": row[3],
             "status": row[4],
             "result": json.loads(row[5]) if row[5] else None,
+            "summary": row[6],
         }
         for row in rows
     ]

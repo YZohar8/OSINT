@@ -70,6 +70,7 @@ async def scan_domain(request: ScanRequest):
             "status": "in_progress",
             "result": None,
             "completed_at": None,
+            "summary": ""
         }
 
         save_scan(scan_id, scan_data)
@@ -98,13 +99,16 @@ async def get_scan_status(scan_id: str):
 
 async def run_and_store_scan(domain: str, scan_id: str):
     try:
-        results = await run_osint_scan(domain, scan_id)
+        data = await run_osint_scan(domain, scan_id)
+        results = data["result"]
+        summary = data["summary"]
         completed_at = datetime.utcnow().isoformat() + 'Z'
 
         update_scan(scan_id, {
             "result": results,
             "status": "completed",
             "completed_at": completed_at,
+            "summary" : summary,
         })
 
         logger.info("Scan completed", extra={"scan_id": scan_id})

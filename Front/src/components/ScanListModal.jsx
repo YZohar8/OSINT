@@ -65,6 +65,7 @@ function ScanListModal({onClose, show }) {
                 <th>Status</th>
                 <th>Created At</th>
                 <th>Completed At</th>
+                <th>Summary</th>
                 <th>Result</th>
               </tr>
             </thead>
@@ -75,6 +76,7 @@ function ScanListModal({onClose, show }) {
                   <td className={getStatusClass(r.status || 'unknown')}>{r.status || 'Unknown'}</td>
                   <td>{formatDate(r.created_at)}</td>
                   <td>{formatDate(r.completed_at)}</td>
+                  <td>{r.summary}</td>
                   <td>{typeof r.result === 'object' ? JSON.stringify(r.result) : (r.result || 'Empty')}</td>
                 </tr>
               ))}

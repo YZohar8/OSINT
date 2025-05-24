@@ -2,50 +2,44 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install required tools and dependencies
+# install tools
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
     git \
-    python3-pip \
-    python3-dev \
+    unzip \
+    jq \
     build-essential \
     libssl-dev \
     libffi-dev \
+    python3-dev \
     ca-certificates \
-    jq \
-    unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Amass (hardcoded version)
+# -------------------------
+# inatall Amass
+# -------------------------
 RUN wget https://github.com/OWASP/Amass/releases/download/v3.21.0/amass_linux_amd64.zip && \
     unzip amass_linux_amd64.zip && \
-    mv amass_linux_amd64/amass /usr/local/bin/ && \
+    mv amass_linux_amd64/amass /usr/local/bin/amass && \
     chmod +x /usr/local/bin/amass && \
-    rm -rf amass_linux_amd64* amass_linux_amd64.zip
+    rm -rf amass_linux_amd64*
 
-# Install TheHarvester using pip
-RUN pip install theHarvester
+# -------------------------------
+# install theHarvester from GitHub
+# -------------------------------
+RUN git clone https://github.com/laramies/theHarvester.git /opt/theHarvester && \
+    pip install /opt/theHarvester
 
-# Create a symlink script for TheHarvester
-RUN echo '#!/bin/bash\ntheHarvester "$@"' > /usr/local/bin/theharvester && \
-    chmod +x /usr/local/bin/theharvester
+RUN ln -sf /usr/local/bin/theHarvester /usr/local/bin/theharvester
 
-# Create another symlink with uppercase letters
-RUN ln -sf /usr/local/bin/theharvester /usr/local/bin/theHarvester
-
-# Ensure /usr/local/bin is in PATH so amass and theHarvester can be run from anywhere
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Copy the requirements file and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
 COPY . .
 
-# Expose port 8000 for the FastAPI app
 EXPOSE 8000
 
-# Start the FastAPI application using uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
